@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <QFile>
+#include <QDataStream>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -25,7 +27,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->customplot->addGraph();
     ui->customplot->graph(2)->setScatterStyle(QCPScatterStyle::ssCircle);
     ui->customplot->graph(2)->setLineStyle(QCPGraph::lsLine);
-    ui->customplot->graph(2)->setPen(QPen(Qt::red));
+    ui->customplot->graph(2)->setPen(QPen(Qt::green));
 
     ui->customplot->xAxis->setLabel("X");
     ui->customplot->yAxis->setLabel("Y");
@@ -154,21 +156,26 @@ void MainWindow::receiveRXValue(const QByteArray &value)
 
 void MainWindow::receiveRXValueToInt(const QByteArray &value)
 {
+    //The value Array contains the bytes send via Bluetooth
     qDebug() << value.length();
 
-    if(value.length()<3)
+    //Only accept Data in the correct format
+    if(value.length()<7)
     {
         return;
     }
 
+    // Initialize an Array where the data will be stored temporarily
     int arrayLength = (int)(value.length()/2);
     int16_t dataPoints[arrayLength];
 
+    // Fill the temp Data array with 0
     for(int i=0;i<arrayLength;i++)
     {
         dataPoints[i]=0;
     }
 
+    // Fill the temp Data array with the correct values
     for(int i=0;i<arrayLength;i++)
     {
         unsigned char HV = value[2*i+1];
@@ -176,9 +183,18 @@ void MainWindow::receiveRXValueToInt(const QByteArray &value)
 
         dataPoints[i] |=  (HV<<8)|(LV);
         //qDebug() << dataPoints[i];
-        plotDataValues.append(dataPoints[i]);
     }
-    this->updatePlot();
+
+    // Add the new data to the correct array
+    plotDataValues_x.append(dataPoints[0]);
+    plotDataValues_y.append(dataPoints[1]);
+    plotDataValues_z.append(dataPoints[2]);
+
+    plotCNT++;
+    if(plotCNT==10){
+        this->updatePlot();
+        plotCNT=0;
+    }
 }
 
 void MainWindow::on_radioButton_clicked(bool checked)
@@ -198,35 +214,61 @@ void MainWindow::on_radioButton_clicked(bool checked)
 void MainWindow::on_clearPlotButton_clicked()
 {
     ui->customplot->graph(0)->data()->clear();
+    ui->customplot->graph(1)->data()->clear();
+    ui->customplot->graph(2)->data()->clear();
+
+    plotDataValues_x.clear();
+    plotDataValues_y.clear();
+    plotDataValues_z.clear();
+
     ui->customplot->replot();
     ui->customplot->update();
-}
 
+    // TO DO
+    // - Clear Data arrays as well
+    // - Add the other two plots as well
+}
 
 void MainWindow::updatePlot()
 {
 
-    int maxDataPoints = ui->setMaxPointsSlider->value();
-    int valueLength = plotDataValues.length();
+    int valueLength = plotDataValues_x.length();
 
-    if(valueLength>=maxDataPoints)
+
+    if(!(ui->Dis_max_data->isChecked()))
     {
-        for(int i=0;i<=(valueLength-maxDataPoints);i++)
+        int maxDataPoints = ui->setMaxPointsSlider->value();
+        if(valueLength>=maxDataPoints)
         {
-            plotDataValues.pop_front();
+            for(int i=0;i<=(valueLength-maxDataPoints);i++)
+            {
+                plotDataValues_x.pop_front();
+                plotDataValues_y.pop_front();
+                plotDataValues_z.pop_front();
+            }
         }
+        valueLength = plotDataValues_x.length();
     }
 
-    valueLength = plotDataValues.length();
     plotDataKeys.clear();
-
     for(int i=0;i<valueLength;i++)
     {
         plotDataKeys.append(i);
     }
 
-    ui->customplot->graph(0)->setData(plotDataKeys,plotDataValues);
-    ui->customplot->graph(0)->rescaleAxes();
+    ui->customplot->graph(0)->setData(plotDataKeys,plotDataValues_x);
+    ui->customplot->graph(1)->setData(plotDataKeys,plotDataValues_y);
+    ui->customplot->graph(2)->setData(plotDataKeys,plotDataValues_z);
+
+    bool en_x = ui->en_x_axis->isChecked();
+    bool en_y = ui->en_y_axis->isChecked();
+    bool en_z = ui->en_z_axis->isChecked();
+
+    ui->customplot->graph(0)->setVisible(en_x);
+    ui->customplot->graph(1)->setVisible(en_y);
+    ui->customplot->graph(2)->setVisible(en_z);
+
+    ui->customplot->rescaleAxes(true);
     ui->customplot->replot();
     ui->customplot->update();
 }
@@ -237,6 +279,78 @@ void MainWindow::on_setMaxPointsSlider_valueChanged(int value)
     QString maxPointValue = QString::number(value);
     ui->maxPointsLabel->setText(maxPointValue);
 }
+
+
+
+void MainWindow::on_save_to_file_button_clicked()
+{
+    QString DataFileName = ui->edit_file_name->text();
+    QString DataFileNumber = ui->file_counter->text();
+
+    QVector<double> allData;
+    allData << plotDataValues_x << plotDataValues_y << plotDataValues_z;
+    this->saveQVectorToFile(allData,DataFolder+"/"+DataFileName+DataFileNumber+".acc");
+
+    ui->file_counter->setValue(ui->file_counter->value()+1);
+}
+
+void MainWindow::saveQVectorToFile(const QVector<double>& data, const QString& filePath)
+{
+    QFile file(filePath);
+    if (file.open(QIODevice::WriteOnly))
+    {
+        QDataStream out(&file);
+        out << data;
+        file.flush();
+        file.close();
+        qDebug() << "QVector saved to file:" << filePath;
+    }
+    else
+    {
+        qDebug() << "Failed to save QVector to file:" << filePath;
+    }
+}
+
+void MainWindow::on_set_folder_button_clicked()
+{
+    //QString filter = "All Files (*.*) ;; Acceleration Files (*.acc) ;; Data Files(*.dat) ;; Binary Files (*.bin)";;
+    DataFolder = QFileDialog::getExistingDirectory(this,"Open a folder","/Users/davidlohuis/Documents/Projekte/Projekt-Nocken/Projekt-Bluetoothnocken/Data");
+    ui->console->appendPlainText(DataFolder);
+}
+
+
+void MainWindow::on_get_folder_button_clicked()
+{
+    ui->console->appendPlainText(DataFolder);
+}
+
+
+void MainWindow::on_Run_Measure_stateChanged(int arg1)
+{
+    if(device->getCharState())
+    {
+        if(arg1)
+        {
+            QString start = "Start";
+            device->writeToTXCharacteristic(start);
+        }
+        else
+        {
+            QString end = "Stop";
+            device->writeToTXCharacteristic(end);
+        }
+    }
+    else
+    {
+        writeToConsole("No Tx Characteristic connected!");
+    }
+}
+
+
+
+
+
+
 
 
 

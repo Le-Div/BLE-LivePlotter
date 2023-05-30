@@ -2,6 +2,8 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QFile>
+#include <QDataStream>
 #include "device.h"
 
 QT_BEGIN_NAMESPACE
@@ -20,8 +22,13 @@ private:
     Ui::MainWindow *ui;
     Device *device = new Device;
     void refreshDeviceList();
-    QVector<double> plotDataValues;
+    void saveQVectorToFile(const QVector<double>& data, const QString& filePath);
+    int plotCNT = 0;
+    QVector<double> plotDataValues_x;
+    QVector<double> plotDataValues_y;
+    QVector<double> plotDataValues_z;
     QVector<double> plotDataKeys;
+    QString DataFolder = "/Users/davidlohuis/Documents/Projekte/Projekt-Nocken/Projekt-Bluetoothnocken/Data";
 
 private slots:
     void addDeviceNames(QString name);
@@ -42,5 +49,9 @@ private slots:
     void on_clearPlotButton_clicked();
 
     void on_setMaxPointsSlider_valueChanged(int value);
+    void on_save_to_file_button_clicked();
+    void on_set_folder_button_clicked();
+    void on_get_folder_button_clicked();
+    void on_Run_Measure_stateChanged(int arg1);
 };
 #endif // MAINWINDOW_H

@@ -322,7 +322,7 @@ void Device::connectToRXCharacteristic(const QString &uuid)
         return;
 
 
-    // subcribing to a characteristic
+    // subscribing to a characteristic
     auto cccd = characteristic.clientCharacteristicConfiguration();
     currentService->writeDescriptor(cccd, QLowEnergyCharacteristic::CCCDEnableNotification);
 
@@ -365,7 +365,17 @@ void Device::writeToTXCharacteristic(QString &message)
     currentService->writeCharacteristic(writeCharacteristic,myMessage,QLowEnergyService::WriteWithoutResponse);
 }
 
-
+bool Device::getCharState()
+{
+    if(writeCharacteristic.isValid())
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
 
 
 

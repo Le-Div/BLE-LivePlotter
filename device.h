@@ -23,6 +23,7 @@ public:
     ~Device();
 
     bool isRandomAddress() const;
+    bool getCharState();
 
 private:
     QBluetoothDeviceDiscoveryAgent *discoveryAgent;
