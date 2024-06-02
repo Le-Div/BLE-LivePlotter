@@ -2,6 +2,7 @@
 #include "ui_mainwindow.h"
 #include <QFile>
 #include <QDataStream>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -63,6 +64,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Clear Console
     connect(ui->clearConsoleButton,&QPushButton::clicked,ui->console,&QPlainTextEdit::clear);
+
+    // Timer for updating the plot in a specific interval
+    //connect(&updatePlot_timer, &QTimer::timeout, this, &MainWindow::convertAndPlot);
+    //updatePlot_timer.setInterval(5000);
+
 }
 
 MainWindow::~MainWindow()
@@ -148,6 +154,7 @@ void MainWindow::on_sendButton_clicked()
 
 void MainWindow::receiveRXValue(const QByteArray &value)
 {
+    qDebug() << value.length();
     QString Data = QString(value);
     ui->console->appendPlainText("Data send:");
     ui->console->appendPlainText(Data);
@@ -157,7 +164,8 @@ void MainWindow::receiveRXValue(const QByteArray &value)
 void MainWindow::receiveRXValueToInt(const QByteArray &value)
 {
     //The value Array contains the bytes send via Bluetooth
-    qDebug() << value.length();
+    value_length += value.length()-1;
+    qDebug() << value_length;
 
     //Only accept Data in the correct format
     if(value.length()<7)
@@ -191,42 +199,51 @@ void MainWindow::receiveRXValueToInt(const QByteArray &value)
     plotDataValues_z.append(dataPoints[2]);
 
     plotCNT++;
-    if(plotCNT==10){
+    if(plotCNT==1){
         this->updatePlot();
         plotCNT=0;
     }
 }
 
-void MainWindow::on_radioButton_clicked(bool checked)
+void MainWindow::saveAccDataToByteArray(const QByteArray &value)
 {
-    if(checked)
-    {
-        disconnect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValue);
-        connect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValueToInt);
-    }
-    else
-    {
-        connect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValue);
-        disconnect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValueToInt);
-    }
+    QString testletter = QString(value);
+    writeToConsole("Data:");
+    writeToConsole(testletter);
+
+    QByteArray data = value;
+    data.remove(0,1);
+
+    value_length += data.length();
+    uint8_t intdata = (uint8_t)data[0];
+    qDebug() << intdata;
+
+    //qDebug() << value.length();
+    //qDebug() << data.length();
+
+    //rawData.append(data);
+    //rawValue.append(value);
 }
 
-void MainWindow::on_clearPlotButton_clicked()
+void MainWindow::convertRawToIntData()
 {
-    ui->customplot->graph(0)->data()->clear();
-    ui->customplot->graph(1)->data()->clear();
-    ui->customplot->graph(2)->data()->clear();
 
-    plotDataValues_x.clear();
-    plotDataValues_y.clear();
-    plotDataValues_z.clear();
 
-    ui->customplot->replot();
-    ui->customplot->update();
+    int16_t xValue = rawData.left(2)[0];
+    int16_t yValue = rawData.left(2)[2];
+    int16_t zValue = rawData.left(2)[4];
 
-    // TO DO
-    // - Clear Data arrays as well
-    // - Add the other two plots as well
+    qDebug() << "x-y-z:";
+    qDebug() << xValue;
+    qDebug() << yValue;
+    qDebug() << zValue;
+
+    //rawData.remove(0,6);
+
+    //plotDataValues_x.append(xValue);
+    //plotDataValues_y.append(yValue);
+    //plotDataValues_z.append(zValue);
+
 }
 
 void MainWindow::updatePlot()
@@ -273,6 +290,33 @@ void MainWindow::updatePlot()
     ui->customplot->update();
 }
 
+void MainWindow::convertAndPlot()
+{
+    int Data_length = rawData.length()/6;
+
+    for(int i=0;i<Data_length;i++)
+    {
+        this->convertRawToIntData();
+    }
+
+    this->updatePlot();
+}
+
+
+
+void MainWindow::on_clearPlotButton_clicked()
+{
+    ui->customplot->graph(0)->data()->clear();
+    ui->customplot->graph(1)->data()->clear();
+    ui->customplot->graph(2)->data()->clear();
+
+    plotDataValues_x.clear();
+    plotDataValues_y.clear();
+    plotDataValues_z.clear();
+
+    ui->customplot->replot();
+    ui->customplot->update();
+}
 
 void MainWindow::on_setMaxPointsSlider_valueChanged(int value)
 {
@@ -331,13 +375,28 @@ void MainWindow::on_Run_Measure_stateChanged(int arg1)
     {
         if(arg1)
         {
-            QString start = "Start";
+
+            // Pipe Data to different array
+            disconnect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValue);
+            connect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValueToInt);
+
+            // Send start command
+            QString start = "Live";
             device->writeToTXCharacteristic(start);
+
+            // Start the update plot function
+            //updatePlot_timer.start();
+
         }
         else
         {
+            // Pipe Data back to the console
+            connect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValue);
+            disconnect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValueToInt);
+
             QString end = "Stop";
             device->writeToTXCharacteristic(end);
+            //updatePlot_timer.stop();
         }
     }
     else
@@ -348,32 +407,48 @@ void MainWindow::on_Run_Measure_stateChanged(int arg1)
 
 
 
+void MainWindow::on_get_single_point_clicked()
+{
+    qDebug() << value_length;
+    //this->convertRawToIntData();
+}
 
 
 
 
+void MainWindow::on_get_Data_stateChanged(int arg1)
+{
+    if(device->getCharState())
+    {
+        if(arg1)
+        {
 
+            // Pipe Data to different array
+            disconnect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValue);
+            connect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValueToInt);
 
+            // Send start command
+            QString start = "Data";
+            device->writeToTXCharacteristic(start);
 
+            // Start the update plot function
+            //updatePlot_timer.start();
 
+        }
+        else
+        {
+            // Pipe Data back to the console
+            connect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValue);
+            disconnect(device,&Device::sendRXValue,this,&MainWindow::receiveRXValueToInt);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            QString end = "Stop";
+            device->writeToTXCharacteristic(end);
+            //updatePlot_timer.stop();
+        }
+    }
+    else
+    {
+        writeToConsole("No Tx Characteristic connected!");
+    }
+}
 
